@@ -1,1 +1,111 @@
 
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>かんたん家計簿</title>
+<link rel="manifest" href="manifest.json">
+<style>
+body { font-family: sans-serif; margin: 20px; }
+h1 { font-size: 1.4em; }
+button {
+  padding: 12px; margin: 6px 0;
+  width: 100%; font-size: 1.1em;
+  border-radius: 8px; border: none; background: #4caf50; color: white;
+}
+input, select {
+  width: 100%; padding: 10px; margin: 5px 0; font-size: 1em;
+}
+.card>
+
+<h2>自由入力</h2>
+<input id="amount" type="number" placeholder="金額（円）">
+<select id="category">
+  <option>食費</option>
+  <option>日用品</option>
+  <option>交通</option>
+  <option>その他</option>
+</select>
+<input id="memo" type="text" placeholder="メモ（任意）">
+<button onclick="addManual()">追加</button>
+
+<div class="card">
+  <h2>今月の合計</h2>
+  <p id="total">0 円</p>
+</div>
+
+<div class="card">
+  <h2>履歴（最新10件）</h2>
+  <div id="history"></div>
+</div>
+
+<script>
+// 初期プリセット（あなた向けに調整可）
+const presets = [
+  { label: "コンビニ 500円", amount: 500, category: "食費" },
+  { label: "コーヒー 300円", amount: 300, category: "食費" },
+  { label: "バス 230円", amount: 230, category: "交通" },
+  { label: "昼ごはん 700円", amount: 700, category: "食費" }
+];
+
+let data = JSON.parse(localStorage.getItem("kakeibo") || "[]");
+
+// プリセットを表示
+function renderPresets() {
+  const area = document.getElementById("preset");
+  area.innerHTML = "";
+  presets.forEach(p => {
+    const btn = document.createElement("button");
+    btn.innerText = p.label;
+    btn.onclick = () => addEntry(p.amount, p.category, p.label);
+    area.appendChild(btn);
+  });
+}
+
+// データ追加
+function addEntry(amount, category, memo = "") {
+  const entry = {
+    date: new Date().toISOString(),
+    amount,
+    category,
+    memo
+  };
+  data.push(entry);
+  localStorage.setItem("kakeibo", JSON.stringify(data));
+  render();
+}
+
+// 自由入力
+function addManual() {
+  const amount = Number(document.getElementById("amount").value);
+  const category = document.getElementById("category").value;
+  const memo = document.getElementById("memo").value;
+  if (!amount) return alert("金額を入れてね！");
+  addEntry(amount, category, memo);
+}
+
+// 今月の合計と履歴を表示
+function render() {
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${now.getMonth() + 1}`;
+
+  const monthly = data.filter(d => d.date.startsWith(ym));
+  const total = monthly.reduce((s, x) => s + x.amount, 0);
+  document.getElementById("total").innerText = total + " 円";
+
+  // 履歴（最新10件）
+  const hist = document.getElementById("history");
+  hist.innerHTML = monthly.slice(-10).reverse().map(d => {
+    const day = d.date.slice(5, 10);
+    return `<p>${day} / ${d.amount}円 / ${d.category} / ${d.memo ?? ""}</p>`;
+  }).join("");
+}
+
+renderPresets();
+render();
+</script>
+
+</body>
+</html>
+
