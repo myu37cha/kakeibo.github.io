@@ -217,26 +217,42 @@ function renderPresetEditor() {
     });
   });
 }
+
 function renderSummaryAndHistory() {
   const monthly = data.filter(d => ymOf(new Date(d.date)) === currentMonth);
   const total = monthly.reduce((s, x) => s + x.amount, 0);
   document.getElementById("total").textContent = `${total.toLocaleString()} 円`;
   document.getElementById("totalFooter").textContent = `${total.toLocaleString()} 円`;
 
-  // 最新20件
   const hist = document.getElementById("history");
   hist.innerHTML = "";
+
   monthly.slice(-20).reverse().forEach(d => {
     const item = document.createElement("div");
     item.className = "hist-row";
     item.innerHTML = `
       <div class="date">${formatDateShort(d.date)}</div>
       <div class="amount">${d.amount.toLocaleString()} 円</div>
-      <div class="meta">${d.category}${d.memo ? "・"+d.memo : ""}</div>
+      <div class="meta">${d.category}${d.memo ? "・" + d.memo : ""}</div>
+      <button class="small danger delBtn" data-id="${d.id}">削除</button>
     `;
     hist.appendChild(item);
   });
+
+  // “削除”のクリック処理
+  document.querySelectorAll(".delBtn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      const id = Number(e.target.dataset.id);
+      const index = data.findIndex(x => x.id === id);
+      if (index >= 0) {
+        data.splice(index, 1);
+        saveAll();
+        render();
+      }
+    });
+  });
 }
+
 function render() {
   renderMonthLabels();
   renderPresets();
