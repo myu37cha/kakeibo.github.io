@@ -3,94 +3,311 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>かんたん家計簿</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="./style.css">
 </head>
 <body>
 
-<h1>かんたん家計簿</h1>
+<header>
+  <h1>かんたん家計簿</h1>
+</header>
 
-<div id="preset"></div>
+<main>
+  <!-- 月切り替え -->
+  <section class="month-switcher card">
+    <button id="prevMonth" class="ghost">&lt;</button>
+    <div id="monthLabel"></div>
+    <button id="nextMonth" class="ghost">&gt;</button>
+  </section>
 
-<h2>自由入力</h2>
-<input id="amount" type="number" placeholder="金額（円）">
-<select id="category">
-  <option>食費</option>
-  <option>日用品</option>
-  <option>交通</option>
-  <option>その他</option>
-</select>
-<input id="memo" type="text" placeholder="メモ（任意）">
-<button class="main-btn" onclick="addManual()">追加</button>
+  <!-- プリセット -->
+  <section class="card">
+    <h2>ワンタップ入力</h2>
+    <div id="preset" class="preset-grid"></div>
+    <details>
+      <summary>プリセットを編集</summary>
+      <div id="presetEditor"></div>
+      <button id="addPreset" class="outline">＋ 追加</button>
+      <p class="hint">※ ドラッグで並び替え（長押し→上下）</p>
+    </details>
+  </section>
 
-<h2>今月の合計</h2>
-<p id="total">0 円</p>
+  <!-- 自由入力 -->
+  <section class="card">
+    <h2>自由入力</h2>
+    <div class="form-row">
+      <input id="amount" type="number" inputmode="numeric" placeholder="金額（円）">
+      <select id="category">
+        <option>食費</option>
+        <option>日用品</option>
+        <option>交通</option>
+        <option>交際</option>
+        <option>エンタメ</option>
+        <option>固定費</option>
+        <option>その他</option>
+      </select>
+    </div>
+    <input id="memo" type="text" placeholder="メモ（任意：店名など）">
+    <button class="main-btn" id="addManual">追加</button>
+  </section>
 
-<h2>履歴（最新10件）</h2>
-<div id="history"></div>
+  <!-- サマリ -->
+  <section class="card">
+    <h2>今月の合計</h2>
+    <p id="total" class="total">0 円</p>
+    <button id="exportCsv" class="outline">CSVエクスポート</button>
+  </section>
+
+  <!-- 履歴 -->
+  <section class="card">
+    <h2>履歴（最新20件）</h2>
+    <div id="history" class="history-list"></div>
+  </section>
+</main>
+
+<!-- 固定フッター：合計 & Undo -->
+<footer>
+  <div><span id="monthLabelFooter"></span>：<strong id="totalFooter">0 円</strong></div>
+  <button id="undoBtn" class="undo">直前を取り消す</button>
+</footer>
 
 <script>
-// --- プリセット ---
-const presets = [
-  { label: "コンビニ 500円", amount: 500, category: "食費" },
-  { label: "コーヒー 300円", amount: 300, category: "食費" },
-  { label: "バス 230円", amount: 230, category: "交通" },
-  { label: "昼ごはん 700円", amount: 700, category: "食費" }
-];
+// ---- ストレージキー ----
+const KEY_DATA = "kakeibo";
+const KEY_PRESETS = "kakeibo_presets";
+const KEY_MONTH = "kakeibo_current_month"; // "YYYY-MM"
 
-let data = JSON.parse(localStorage.getItem("kakeibo") || "[]");
+// ---- 初期データ ----
+let data = JSON.parse(localStorage.getItem(KEY_DATA) || "[]");
+let presets = JSON.parse(localStorage.getItem(KEY_PRESETS) || "[]");
+if (presets.length === 0) {
+  presets = [
+    { label: "コンビニ 500", amount: 500, category: "食費" },
+    { label: "コーヒー 300", amount: 300, category: "食費" },
+    { label: "バス 230", amount: 230, category: "交通" },
+    { label: "昼ごはん 700", amount: 700, category: "食費" }
+  ];
+  localStorage.setItem(KEY_PRESETS, JSON.stringify(presets));
+}
+let currentMonth = localStorage.getItem(KEY_MONTH) || ymOf(new Date());
+let lastAddedId = null; // Undo用
 
+// ---- ユーティリティ ----
+function ymOf(date) {
+  const y = date.getFullYear();
+  const m = (date.getMonth() + 1).toString().padStart(2, "0");
+  return `${y}-${m}`;
+}
+function monthStartFromYM(ym) {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m - 1, 1);
+}
+function formatDateShort(iso) {
+  const d = new Date(iso);
+  const mm = (d.getMonth() + 1).toString().padStart(2, "0");
+  const dd = d.getDate().toString().padStart(2, "0");
+  return `${mm}/${dd}`;
+}
+function saveAll() {
+  localStorage.setItem(KEY_DATA, JSON.stringify(data));
+  localStorage.setItem(KEY_PRESETS, JSON.stringify(presets));
+  localStorage.setItem(KEY_MONTH, currentMonth);
+}
+
+// ---- 追加処理 ----
+function addEntry(amount, category, memo = "") {
+  const entry = {
+    id: Date.now(), // 簡易ユニーク
+    date: new Date().toISOString(),
+    amount: Number(amount),
+    category,
+    memo: memo || ""
+  };
+  data.push(entry);
+  lastAddedId = entry.id;
+  saveAll();
+  render();
+}
+
+function undoLast() {
+  if (!lastAddedId) return alert("直近の追加が見つかりません。");
+  const idx = data.findIndex(e => e.id === lastAddedId);
+  if (idx >= 0) {
+    data.splice(idx, 1);
+    saveAll();
+    lastAddedId = null;
+    render();
+  } else {
+    alert("取り消せませんでした。");
+  }
+}
+
+// ---- 表示更新 ----
+function renderMonthLabels() {
+  const ms = monthStartFromYM(currentMonth);
+  const label = `${ms.getFullYear()}年 ${ms.getMonth() + 1}月`;
+  document.getElementById("monthLabel").textContent = label;
+  document.getElementById("monthLabelFooter").textContent = label;
+}
 function renderPresets() {
   const area = document.getElementById("preset");
   area.innerHTML = "";
-  presets.forEach(p => {
+  presets.forEach((p, i) => {
     const btn = document.createElement("button");
     btn.className = "preset-btn";
     btn.innerText = p.label;
     btn.onclick = () => addEntry(p.amount, p.category, p.label);
+    btn.setAttribute("draggable", "true");
+    btn.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData("text/plain", i.toString());
+    });
+    btn.addEventListener("dragover", (e) => e.preventDefault());
+    btn.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const from = Number(e.dataTransfer.getData("text/plain"));
+      const to = i;
+      if (from === to) return;
+      const item = presets.splice(from, 1)[0];
+      presets.splice(to, 0, item);
+      saveAll();
+      renderPresets();
+      renderPresetEditor();
+    });
     area.appendChild(btn);
   });
 }
+function renderPresetEditor() {
+  const ed = document.getElementById("presetEditor");
+  ed.innerHTML = "";
+  presets.forEach((p, i) => {
+    const row = document.createElement("div");
+    row.className = "preset-row";
+    row.innerHTML = `
+      <input type="text" value="${p.label}" data-i="${i}" data-k="label">
+      <input type="number" value="${p.amount}" data-i="${i}" data-k="amount" class="w80">
+      <select data-i="${i}" data-k="category">
+        ${["食費","日用品","交通","交際","エンタメ","固定費","その他"].map(c =>
+          `<option ${c===p.category?"selected":""}>${c}</option>`
+        ).join("")}
+      </select>
+      <button class="small danger" data-del="${i}">削除</button>
+    `;
+    ed.appendChild(row);
+  });
 
-function addEntry(amount, category, memo = "") {
-  const entry = {
-    date: new Date().toISOString(),
-    amount,
-    category,
-    memo
-  };
-  data.push(entry);
-  localStorage.setItem("kakeibo", JSON.stringify(data));
-  render();
+  ed.querySelectorAll("input,select").forEach(el => {
+    el.addEventListener("change", e => {
+      const i = Number(e.target.dataset.i);
+      const k = e.target.dataset.k;
+      let v = e.target.value;
+      if (k === "amount") v = Number(v || 0);
+      presets[i][k] = v;
+      saveAll();
+      renderPresets();
+    });
+  });
+  ed.querySelectorAll("button[data-del]").forEach(btn => {
+    btn.addEventListener("click", e => {
+      const i = Number(e.target.dataset.del);
+      presets.splice(i,1);
+      saveAll();
+      renderPresets();
+      renderPresetEditor();
+    });
+  });
+}
+function renderSummaryAndHistory() {
+  const monthly = data.filter(d => ymOf(new Date(d.date)) === currentMonth);
+  const total = monthly.reduce((s, x) => s + x.amount, 0);
+  document.getElementById("total").textContent = `${total.toLocaleString()} 円`;
+  document.getElementById("totalFooter").textContent = `${total.toLocaleString()} 円`;
+
+  // 最新20件
+  const hist = document.getElementById("history");
+  hist.innerHTML = "";
+  monthly.slice(-20).reverse().forEach(d => {
+    const item = document.createElement("div");
+    item.className = "hist-row";
+    item.innerHTML = `
+      <div class="date">${formatDateShort(d.date)}</div>
+      <div class="amount">${d.amount.toLocaleString()} 円</div>
+      <div class="meta">${d.category}${d.memo ? "・"+d.memo : ""}</div>
+    `;
+    hist.appendChild(item);
+  });
+}
+function render() {
+  renderMonthLabels();
+  renderPresets();
+  renderPresetEditor();
+  renderSummaryAndHistory();
 }
 
-function addManual() {
+// ---- 月切り替え ----
+document.getElementById("prevMonth").addEventListener("click", () => {
+  const ms = monthStartFromYM(currentMonth);
+  ms.setMonth(ms.getMonth() - 1);
+  currentMonth = ymOf(ms);
+  saveAll();
+  render();
+});
+document.getElementById("nextMonth").addEventListener("click", () => {
+  const ms = monthStartFromYM(currentMonth);
+  ms.setMonth(ms.getMonth() + 1);
+  currentMonth = ymOf(ms);
+  saveAll();
+  render();
+});
+
+// ---- 自由入力 ----
+document.getElementById("addManual").addEventListener("click", () => {
   const amount = Number(document.getElementById("amount").value);
   const category = document.getElementById("category").value;
   const memo = document.getElementById("memo").value;
-  if (!amount) return alert("金額を入れてね！");
+  if (!amount) { alert("金額を入れてね！"); return; }
   addEntry(amount, category, memo);
-}
+  document.getElementById("amount").value = "";
+  document.getElementById("memo").value = "";
+  // スクロールをトップに戻して押しやすく
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
 
-function render() {
-  const now = new Date();
-  const ym = `${now.getFullYear()}-${now.getMonth() + 1}`;
+// ---- CSVエクスポート ----
+document.getElementById("exportCsv").addEventListener("click", () => {
+  const lines = ["date,amount,category,memo"];
+  data.forEach(d => {
+    const row = [
+      new Date(d.date).toISOString(),
+      d.amount,
+      `"${d.category}"`,
+      `"${(d.memo||"").replace(/"/g, '""')}"`
+    ].join(",");
+    lines.push(row);
+  });
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "expenses.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
 
-  const monthly = data.filter(d => d.date.startsWith(ym));
-  const total = monthly.reduce((s, x) => s + x.amount, 0);
-  document.getElementById("total").innerText = total + " 円";
+// ---- Undo ----
+document.getElementById("undoBtn").addEventListener("click", undoLast);
 
-  const hist = document.getElementById("history");
-  hist.innerHTML = monthly.slice(-10).reverse().map(d => {
-    const day = d.date.slice(5, 10);
-    return `<p>${day} / ${d.amount}円 / ${d.category} / ${d.memo ?? ""}</p>`;
-  }).join("");
-}
+// ---- プリセット追加 ----
+document.getElementById("addPreset").addEventListener("click", () => {
+  presets.push({ label: "新しい項目 500", amount: 500, category: "その他" });
+  saveAll();
+  renderPresets();
+  renderPresetEditor();
+});
 
-renderPresets();
+// ---- 初期表示 ----
 render();
 </script>
 
 </body>
 </html>
+``
